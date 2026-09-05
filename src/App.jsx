@@ -17,14 +17,15 @@ const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Fraun
 
 const TIERS = {
   free: { name: "Free", price: "£0", limit: 30, period: "lifetime", blurb: "30 reviews, no time limit" },
-  starter: { name: "Starter", price: "£5/mo", limit: 100, period: "month", blurb: "100 reviews a month" },
-  growth: { name: "Growth", price: "£10/mo", limit: 300, period: "month", blurb: "300 reviews a month" },
-  pro: { name: "Pro", price: "£20/mo", limit: 1000, period: "month", blurb: "1,000 reviews a month" },
+  starter: { name: "Starter", price: "£5/mo", limit: 100, period: "month", blurb: "100 reviews a month", link: "https://buy.stripe.com/test_9B6eVc3PA8Pc8vt02ieAg00" },
+  growth: { name: "Growth", price: "£10/mo", limit: 300, period: "month", blurb: "300 reviews a month", link: "https://buy.stripe.com/test_aFabJ0eue1mK9zxcP4eAg01" },
+  pro: { name: "Pro", price: "£20/mo", limit: 1000, period: "month", blurb: "1,000 reviews a month", link: "https://buy.stripe.com/test_8x24gy4TE9TgeTR3eueAg02" },
 };
 
 const monthKey = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${d.getMonth() + 1}`;
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${d.getFullYear()}-${m}`;
 };
 
 const slugify = (s) =>
@@ -64,7 +65,8 @@ async function fetchReviews(businessId) {
 async function insertReview(businessId, slug, rating, message) {
   const { error } = await supabase.from("reviews").insert({ business_id: businessId, rating, message });
   if (error) throw error;
-  await supabase.rpc("increment_review_count", { p_slug: slug });
+  const { error: rpcError } = await supabase.rpc("increment_review_count", { p_slug: slug });
+  if (rpcError) throw rpcError;
 }
 async function makeUniqueSlug(name) {
   const base = slugify(name) || "business";
@@ -164,6 +166,7 @@ function CustomerFlow({ slug, onExitDemo }) {
   const [message, setMessage] = useState("");
   const [stage, setStage] = useState("rate");
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     fetchBizBySlug(slug).then(setBiz).catch(() => setBiz(null));
@@ -172,8 +175,13 @@ function CustomerFlow({ slug, onExitDemo }) {
   const submitReview = useCallback(
     async (finalRating, finalMessage) => {
       setSaving(true);
+      setErr("");
       try {
         await insertReview(biz.id, slug, finalRating, finalMessage || "");
+        return true;
+      } catch (e) {
+        setErr(e.message || "Something went wrong saving your review. Please try again.");
+        return false;
       } finally {
         setSaving(false);
       }
@@ -208,8 +216,8 @@ function CustomerFlow({ slug, onExitDemo }) {
               disabled={!rating}
               onClick={async () => {
                 if (rating >= 4) {
-                  await submitReview(rating, "");
-                  setStage("thanks-good");
+                  const ok = await submitReview(rating, "");
+                  if (ok) setStage("thanks-good");
                 } else {
                   setStage("feedback");
                 }
@@ -218,6 +226,7 @@ function CustomerFlow({ slug, onExitDemo }) {
             >
               Continue
             </button>
+            {err && <p style={{ color: T.clay, fontSize: 13, marginTop: 10 }}>{err}</p>}
           </div>
         )}
 
@@ -237,13 +246,14 @@ function CustomerFlow({ slug, onExitDemo }) {
             <button
               disabled={saving}
               onClick={async () => {
-                await submitReview(rating, message);
-                setStage("thanks-bad");
+                const ok = await submitReview(rating, message);
+                if (ok) setStage("thanks-bad");
               }}
               style={{ ...btnPrimary, width: "100%" }}
             >
               {saving ? "Sending…" : "Send feedback"}
             </button>
+            {err && <p style={{ color: T.clay, fontSize: 13, marginTop: 10 }}>{err}</p>}
           </div>
         )}
 
@@ -545,22 +555,31 @@ function Dashboard({ slug, onLogout }) {
                   <div style={{ fontSize: 12, color: T.inkSoft, marginBottom: 14 }}>{t.blurb}</div>
                   {biz.tier === id ? (
                     <span style={{ fontSize: 12, color: T.moss, fontWeight: 600 }}>Current plan</span>
-                  ) : (
+                  ) : id === "free" ? (
                     <button
                       onClick={async () => {
-                        await updateBiz(biz.id, { tier: id, month_key: monthKey(), reviews_this_month: 0 });
+                        await updateBiz(biz.id, { tier: "free" });
                         refresh();
                       }}
                       style={{ ...btnGhost, fontSize: 13, padding: "6px 12px" }}
                     >
                       Switch
                     </button>
+                  ) : (
+                    <a
+                      href={`${t.link}?client_reference_id=${biz.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ ...btnGhost, fontSize: 13, padding: "6px 12px", display: "inline-block", textDecoration: "none" }}
+                    >
+                      Upgrade
+                    </a>
                   )}
                 </div>
               ))}
             </div>
             <p style={{ fontSize: 12, color: T.inkSoft, marginTop: 14 }}>
-              Switching plans here is instant and free for now — wire up Stripe when you're ready to actually charge for it.
+              Upgrading takes you to a secure Stripe checkout page. Your plan updates automatically once payment goes through — refresh this page after paying if it doesn't update within a few seconds.
             </p>
           </div>
         )}
