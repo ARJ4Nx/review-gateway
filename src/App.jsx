@@ -301,8 +301,14 @@ function AuthScreen({ mode, setMode, onAuthed }) {
       if (mode === "signup") {
         const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) throw signUpError;
-        const userId = data.user?.id;
-        if (!userId) throw new Error("Check your email to confirm your account, then log in.");
+        let userId = data.user?.id;
+
+        if (!data.session) {
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+          if (signInError) throw new Error("Check your email to confirm your account, then log in.");
+          userId = signInData.user.id;
+        }
+        if (!userId) throw new Error("Something went wrong creating your account. Try logging in instead.");
 
         const slug = await makeUniqueSlug(name);
         const { data: biz, error: insertError } = await supabase
